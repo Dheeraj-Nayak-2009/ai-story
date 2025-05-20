@@ -1,0 +1,309 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="shortcut icon" href="https://cdn-icons-png.flaticon.com/512/742/742743.png" type="image/x-icon">
+  <title>AI Bedtime Story💤</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');
+    body {
+      font-family: "Poppins", sans-serif;
+      padding: 20px;
+      background: #0f172a;
+      color: white;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      min-height: 100vh;
+      margin: 0;
+    }
+    .container {
+      max-width: 600px;
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+    }
+    .input-row {
+      width: 100%;
+      display: flex;
+      flex-direction: column;
+      margin-bottom: 10px;
+    }
+    input, button, select {
+      padding: 10px;
+      font-size: 16px;
+      width: 100%;
+      box-sizing: border-box;
+      border-radius: 5px;
+      border: none;
+      background: #001227b0;
+      color: white;
+      font-family: "Poppins", sans-serif;
+    }
+    input:is(:-webkit-autofill, :autofill) {
+      -webkit-text-fill-color: white;
+      -webkit-box-shadow: 0 0 0px 1000px #001227 inset;
+    }
+    label {
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+    select:focus, input:focus, button:focus {
+      outline: none;
+    }
+    button {
+      background: #2563eb;
+      color: white;
+      cursor: pointer;
+    }
+    #result {
+      margin-top: 20px;
+      white-space: pre-wrap;
+      background: #1e293b;
+      padding: 15px;
+      border-radius: 10px;
+      max-width: 570px;
+      width: 100%;
+      min-height: 100px;
+      transition: height 1s ease;
+    }
+    #controls {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="input-row">
+      <label for="genre">Genre:</label>
+      <select id="genre">
+        <option value="Random">Random</option>
+        <option value="Action">Action</option>
+        <option value="Adventure">Adventure</option>
+        <option value="Crime">Crime</option>
+        <option value="Comedy">Comedy</option>
+        <option value="Drama">Drama</option>
+        <option value="Family">Daily Life</option>
+        <option value="Fantasy">Fantasy</option>
+        <option value="Horror">Horror</option>
+        <option value="Mystery">Mystery</option>
+        <option value="Romance">Romance</option>
+        <option value="Science Fiction">Science Fiction</option>
+        <option value="Thriller">Thriller</option>
+      </select>
+    </div>
+    <div class="input-row">
+      <label for="paragraphs">Paragraphs:</label>
+      <input type="number" id="paragraphs" value="5" min="1" max="10" />
+    </div>
+    <div class="input-row">
+      <label for="name">Character:</label>
+      <input type="text" id="name" placeholder="name, attributes (optional)" />
+    </div>
+    <div class="input-row">
+      <label for="voiceSelect">Voice:</label>
+      <select id="voiceSelect"></select>
+    </div>
+    <div class="input-row" id="controls">
+      <button id="generateBtn">Generate</button>
+      <button id="playPauseBtn" disabled>▶️ Play</button>
+    </div>
+    <div id="result"></div>
+  </div>
+
+  <script type="module">
+    import { GoogleGenerativeAI } from "https://esm.run/@google/generative-ai";
+
+    const encodedApiKey = "snwXD-8tqV-pU9pJeSDSzF7kP4meLTYvBySazIA";
+    function i(str) {
+      return str.split("").reverse().join("");
+    }
+
+    const yek_ipa = i(encodedApiKey);
+    const genAI = new GoogleGenerativeAI(yek_ipa);
+    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+    const genreSelect = document.getElementById("genre");
+    const generateBtn = document.getElementById("generateBtn");
+    const resultDiv = document.getElementById("result");
+    const voiceSelect = document.getElementById("voiceSelect");
+    const playPauseBtn = document.getElementById("playPauseBtn");
+
+    let history = [];
+    try {
+      const stored = localStorage.getItem("storyHistory");
+      if (stored) {
+        history = JSON.parse(stored);
+        console.log("📖 Stored history loaded:", history);
+      }
+    } catch (e) {
+      console.warn("Failed to load history from localStorage", e);
+    }
+
+    function saveHistory() {
+      try {
+        localStorage.setItem("storyHistory", JSON.stringify(history));
+      } catch (e) {
+        console.warn("Failed to save history to localStorage", e);
+      }
+    }
+
+    const synth = window.speechSynthesis;
+    let voices = [];
+    let currentStoryChunks = [];
+    let currentUtteranceIndex = 0;
+    let currentText = "";
+    let isSpeaking = false;
+    let isPaused = false;
+
+    function loadVoices() {
+      voices = synth.getVoices();
+      voiceSelect.innerHTML = "";
+
+      voices.forEach((v, i) => {
+        const option = document.createElement("option");
+        option.value = i;
+        option.textContent = `${v.name} (${v.lang})${v.default ? " [default]" : ""}`;
+        voiceSelect.appendChild(option);
+      });
+
+      const defaultVoiceIndex = voices.findIndex(
+        v => v.name === "Google UK English Male" && v.lang === "en-GB"
+      );
+      voiceSelect.value = defaultVoiceIndex !== -1 ? defaultVoiceIndex : 0;
+    }
+
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = loadVoices;
+    } else {
+      loadVoices();
+    }
+
+    function splitTextIntoChunks(text) {
+      const sentences = text.match(/[^\.!\?]+[\.!\?]+/g);
+      return sentences && sentences.length > 0 ? sentences : [text];
+    }
+
+    function playNextChunk() {
+      if (currentUtteranceIndex >= currentStoryChunks.length) {
+        isSpeaking = false;
+        playPauseBtn.textContent = "▶️ Play";
+        return;
+      }
+
+      const utterance = new SpeechSynthesisUtterance(currentStoryChunks[currentUtteranceIndex]);
+      utterance.voice = voices[voiceSelect.value];
+      utterance.rate = 1;
+      utterance.pitch = 1;
+
+      utterance.onerror = (e) => {
+        console.warn("🛑 Speech error:", e);
+        isSpeaking = false;
+        playPauseBtn.textContent = "▶️ Play";
+      };
+
+      utterance.onend = () => {
+        if (!isPaused) {
+          currentUtteranceIndex++;
+          playNextChunk();
+        }
+      };
+
+      synth.speak(utterance);
+      isSpeaking = true;
+    }
+
+    function startSpeech(text) {
+      if (synth.speaking) synth.cancel();
+      currentText = text;
+      currentStoryChunks = splitTextIntoChunks(text);
+      currentUtteranceIndex = 0;
+      isPaused = false;
+
+      // Delay speaking to prevent "interrupted" error
+      setTimeout(() => {
+        playNextChunk();
+        playPauseBtn.disabled = false;
+        playPauseBtn.textContent = "⏸️ Pause";
+      }, 200); // 200ms is usually safe
+    }
+
+    function togglePlayPause() {
+      if (isSpeaking && !isPaused) {
+        synth.pause();
+        isPaused = true;
+        playPauseBtn.textContent = "▶️ Resume";
+      } else if (isSpeaking && isPaused) {
+        synth.resume();
+        isPaused = false;
+        playPauseBtn.textContent = "⏸️ Pause";
+      } else {
+        startSpeech(currentText);
+      }
+    }
+
+    playPauseBtn.addEventListener("click", togglePlayPause);
+
+    function changeVoice() {
+      if (!isSpeaking) return;
+      synth.cancel();
+      setTimeout(() => {
+        playNextChunk();
+      }, 300);
+    }
+
+    voiceSelect.addEventListener("change", changeVoice);
+
+    generateBtn.onclick = async () => {
+      if (genreSelect.value === "Random") {
+        const genres = ["Action", "Adventure", "Crime", "Comedy", "Drama", "Family", "Fantasy", "Horror", "Mystery", "Romance", "Science Fiction", "Thriller"];
+        genreSelect.value = genres[Math.floor(Math.random() * genres.length)];
+      }
+
+      const nameInput = document.getElementById("name").value.trim();
+      const paragraphs = document.getElementById("paragraphs").value || 5;
+      const seed = Math.random().toString(36).substring(2, 8);
+
+      const characterLine = nameInput
+        ? `The story should include a character named ${nameInput}.`
+        : `The story should include a character with a random name.`;
+
+      const previousStories = history.length
+        ? `Here are previous stories:\n${history.map((s, i) => `Story ${i + 1}:\n${s}`).join("\n\n")}\n\n`
+        : "";
+
+      const prompt = `
+Write a short story with the following:
+- Genre: ${genreSelect.value}
+- Paragraphs: ${paragraphs}
+- ${characterLine}
+- Use randomness seed: ${seed}
+
+${previousStories}
+
+The story must be original, no repetition of characters/plots. Output only the title and story, in prose.
+      `;
+
+      resultDiv.textContent = "⏳ Generating...";
+
+      try {
+        const response = await model.generateContent(prompt);
+        const res = await response.response;
+        const storyText = res.text().trim();
+
+        history.push(storyText);
+        saveHistory();
+
+        resultDiv.textContent = storyText;
+        startSpeech(storyText);
+      } catch (err) {
+        console.error(err);
+        resultDiv.textContent = "❌ Error generating content.";
+      }
+    };
+  </script>
+</body>
+</html>
